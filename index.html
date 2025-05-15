@@ -1,37 +1,286 @@
 <!DOCTYPE html>
 <html lang="nl">
 <head>
-  <meta charset="UTF-8" />
-  <title>Test Admin Login</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    .hidden { display: none; }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Trainingen Planner</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; max-width: 800px; }
+  h2 { margin-top: 30px; }
+  label { display: block; margin-top: 10px; }
+  input, select, button, textarea { margin-top: 5px; padding: 5px; width: 100%; max-width: 400px; }
+  table { border-collapse: collapse; margin-top: 20px; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+  th { background-color: #eee; }
+  .hidden { display: none; }
+  .success { color: green; }
+  .error { color: red; }
+  .small-input { width: 150px; display: inline-block; margin-right: 10px; }
+  .multi-inputs > div { margin-bottom: 5px; }
+  button.add-btn { margin-top: 10px; width: auto; }
+</style>
 </head>
 <body>
 
-<h2>Admin login</h2>
-<label for="adminPassword">Wachtwoord:</label>
-<input type="password" id="adminPassword" />
-<button id="btnLogin">Inloggen</button>
+<h1>Trainingen Planner</h1>
 
-<p id="message"></p>
+<div id="login-section">
+  <h2>Admin login</h2>
+  <label for="adminPassword">Wachtwoord:</label>
+  <input type="password" id="adminPassword" />
+  <button id="btnLogin">Inloggen</button>
+  <p id="loginMessage"></p>
+</div>
+
+<div id="app-section" class="hidden">
+
+  <h2>Training toevoegen</h2>
+  <label>Training naam:</label>
+  <input type="text" id="trainingName" placeholder="Bijv. Acteertraining" />
+
+  <div id="datesTimesLocations">
+    <h3>Data, tijden en locaties</h3>
+    <div class="multi-inputs" id="dtl-list"></div>
+    <button id="addDTL" class="add-btn">Datum, tijd en locatie toevoegen</button>
+  </div>
+
+  <button id="saveTraining" style="margin-top: 20px;">Training opslaan</button>
+  <p id="saveMessage"></p>
+
+  <h2>Beschikbare trainingen</h2>
+  <label for="roleFilter">Filter op rol:</label>
+  <select id="roleFilter">
+    <option value="all">Alle rollen</option>
+    <option value="trainer">Trainer</option>
+    <option value="acteur">Acteur</option>
+  </select>
+
+  <table id="trainingsTable">
+    <thead>
+      <tr>
+        <th>Naam</th>
+        <th>Data, tijden & locaties</th>
+        <th>Inschrijven als</th>
+        <th>Inschrijvingen</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
 
 <script>
+(() => {
   const ADMIN_PASSWORD = "admin123";
-  const btnLogin = document.getElementById("btnLogin");
-  const inputPassword = document.getElementById("adminPassword");
-  const message = document.getElementById("message");
 
+  // Data opslaan in localStorage
+  let trainingen = JSON.parse(localStorage.getItem("trainingen")) || [];
+
+  // Elements
+  const loginSection = document.getElementById("login-section");
+  const appSection = document.getElementById("app-section");
+  const btnLogin = document.getElementById("btnLogin");
+  const adminPasswordInput = document.getElementById("adminPassword");
+  const loginMessage = document.getElementById("loginMessage");
+
+  const trainingNameInput = document.getElementById("trainingName");
+  const dtlList = document.getElementById("dtl-list");
+  const addDTLBtn = document.getElementById("addDTL");
+  const saveTrainingBtn = document.getElementById("saveTraining");
+  const saveMessage = document.getElementById("saveMessage");
+
+  const roleFilter = document.getElementById("roleFilter");
+  const trainingsTableBody = document.querySelector("#trainingsTable tbody");
+
+  let isAdmin = false;
+
+  // Login functie
   btnLogin.addEventListener("click", () => {
-    if (inputPassword.value === ADMIN_PASSWORD) {
-      message.style.color = "green";
-      message.textContent = "Inloggen gelukt!";
+    if (adminPasswordInput.value === ADMIN_PASSWORD) {
+      isAdmin = true;
+      loginSection.classList.add("hidden");
+      appSection.classList.remove("hidden");
+      loginMessage.textContent = "";
+      renderTrainings();
+      clearTrainingForm();
     } else {
-      message.style.color = "red";
-      message.textContent = "Wachtwoord incorrect.";
+      loginMessage.textContent = "Wachtwoord incorrect.";
+      loginMessage.className = "error";
     }
   });
+
+  // Voeg nieuwe datum/tijd/locatie invoer toe
+  function addDTLEntry(date = "", time = "", location = "") {
+    const div = document.createElement("div");
+
+    div.innerHTML = `
+      <input type="date" class="dateInput small-input" value="${date}" required />
+      <input type="time" class="timeInput small-input" value="${time}" required />
+      <input type="text" class="locationInput small-input" placeholder="Locatie" value="${location}" required />
+      <button type="button" class="removeDTLBtn">Verwijderen</button>
+    `;
+
+    div.querySelector(".removeDTLBtn").addEventListener("click", () => {
+      dtlList.removeChild(div);
+    });
+
+    dtlList.appendChild(div);
+  }
+
+  addDTLBtn.addEventListener("click", () => {
+    addDTLEntry();
+  });
+
+  // Training opslaan
+  saveTrainingBtn.addEventListener("click", () => {
+    const naam = trainingNameInput.value.trim();
+    if (!naam) {
+      saveMessage.textContent = "Vul een training naam in.";
+      saveMessage.className = "error";
+      return;
+    }
+
+    // Verzamel alle data/tijd/locatie entries
+    const dtlDivs = dtlList.querySelectorAll("div");
+    if (dtlDivs.length === 0) {
+      saveMessage.textContent = "Voeg minimaal één datum, tijd en locatie toe.";
+      saveMessage.className = "error";
+      return;
+    }
+
+    const dtlArray = [];
+    for (const div of dtlDivs) {
+      const date = div.querySelector(".dateInput").value;
+      const time = div.querySelector(".timeInput").value;
+      const location = div.querySelector(".locationInput").value.trim();
+      if (!date || !time || !location) {
+        saveMessage.textContent = "Alle datum, tijd en locatie velden moeten ingevuld zijn.";
+        saveMessage.className = "error";
+        return;
+      }
+      dtlArray.push({ date, time, location });
+    }
+
+    // Nieuwe training object
+    const nieuweTraining = {
+      id: Date.now().toString(),
+      naam,
+      dtl: dtlArray,
+      inschrijvingen: { trainer: [], acteur: [] }
+    };
+
+    trainingen.push(nieuweTraining);
+    localStorage.setItem("trainingen", JSON.stringify(trainingen));
+    saveMessage.textContent = "Training succesvol opgeslagen.";
+    saveMessage.className = "success";
+
+    clearTrainingForm();
+    renderTrainings();
+  });
+
+  // Form resetten
+  function clearTrainingForm() {
+    trainingNameInput.value = "";
+    dtlList.innerHTML = "";
+    addDTLEntry();
+    saveMessage.textContent = "";
+  }
+
+  // Render trainingen tabel
+  function renderTrainings() {
+    const filter = roleFilter.value;
+    trainingsTableBody.innerHTML = "";
+
+    trainingen.forEach(training => {
+      const tr = document.createElement("tr");
+
+      // Naam
+      const tdNaam = document.createElement("td");
+      tdNaam.textContent = training.naam;
+      tr.appendChild(tdNaam);
+
+      // Data, tijden, locaties
+      const tdDTL = document.createElement("td");
+      tdDTL.innerHTML = training.dtl.map(dtl =>
+        `${dtl.date} ${dtl.time} (${dtl.location})`
+      ).join("<br>");
+      tr.appendChild(tdDTL);
+
+      // Inschrijven als select
+      const tdInschrijven = document.createElement("td");
+      if (!isAdmin) {
+        tdInschrijven.textContent = "-";
+      } else {
+        const select = document.createElement("select");
+        select.innerHTML = `
+          <option value="trainer">Trainer</option>
+          <option value="acteur">Acteur</option>
+        `;
+        tdInschrijven.appendChild(select);
+      }
+      tr.appendChild(tdInschrijven);
+
+      // Inschrijvingen
+      const tdInschrijvingen = document.createElement("td");
+      if (filter === "all" || filter === "") {
+        tdInschrijvingen.innerHTML = `
+          Trainers: ${training.inschrijvingen.trainer.length} <br>
+          Acteurs: ${training.inschrijvingen.acteur.length}
+        `;
+      } else {
+        tdInschrijvingen.textContent = training.inschrijvingen[filter].length;
+      }
+      tr.appendChild(tdInschrijvingen);
+
+      // Inschrijven knop (voor niet-admins)
+      if (!isAdmin) {
+        const tdInschrijfBtn = document.createElement("td");
+        const btn = document.createElement("button");
+        btn.textContent = "Inschrijven";
+        btn.addEventListener("click", () => {
+          const role = prompt("Schrijf in als (trainer/acteur):").toLowerCase();
+          if (role !== "trainer" && role !== "acteur") {
+            alert("Ongeldige rol.");
+            return;
+          }
+          if (training.inschrijvingen[role].includes("Anoniem")) {
+            alert("Je bent al ingeschreven.");
+            return;
+          }
+          training.inschrijvingen[role].push("Anoniem");
+          localStorage.setItem("trainingen", JSON.stringify(trainingen));
+          alert(`Inschrijving als ${role} gelukt!`);
+          renderTrainings();
+        });
+        tdInschrijfBtn.appendChild(btn);
+        tr.appendChild(tdInschrijfBtn);
+      }
+
+      trainingsTableBody.appendChild(tr);
+    });
+  }
+
+  // Filter verandert
+  roleFilter.addEventListener("change", renderTrainings);
+
+  // Init
+  function init() {
+    clearTrainingForm();
+    renderTrainings();
+  }
+
+  // Show login section and hide app by default
+  loginSection.classList.remove("hidden");
+  appSection.classList.add("hidden");
+
+  init();
+
+  // Maak het mogelijk om ook zonder admin in te schrijven, toon dan alleen lijst en inschrijven
+  if (!isAdmin) {
+    loginSection.classList.add("hidden");
+    appSection.classList.remove("hidden");
+  }
+
+})();
 </script>
 
 </body>
